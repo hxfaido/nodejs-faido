@@ -1,0 +1,165 @@
+#!/usr/local/bin/node
+
+if( require("tty").isatty(1) )
+{
+   console.log("daemon need run in background.");
+   process.exit(1);
+}
+
+var server_list = {};
+
+var fs = require("fs");
+var net = require("net");
+var cp = require("child_process");
+//get the unix socket
+var spath = process.argv[2];
+
+
+//start cmd server
+var server = net.createServer(function(s){
+    s.on("data",handlecmd.bind(null,s));
+});
+
+//the spath will be unlink by cmd
+server.listen(spath, 15);
+
+
+
+process.on("SIGTERM",function(){
+    //can not be kill
+});
+
+process.on("uncaughtException",function(e){
+    //do nothing   
+});
+
+
+//handle cmd
+function handlecmd(s,buf){
+    var obj = JSON.parse(buf.toString("utf8"));
+    //obj.file is always absolutely
+    var child = server_list[obj.file];
+
+    var ret = {};
+    if(obj.cmd === "start"){
+		if(child){
+			sendret(s,"server is start already");
+		}
+		else
+		{
+			var err = startserver(obj.file);
+			sendret(s,err);
+		}
+    }
+    else if(obj.cmd === "stop"){
+		if(child){
+			child.on("exit",function(){
+			sendret(s);
+			});
+			child.kill("SIGTERM");
+		}
+		else
+		{
+		   sendret(s,"server is not start");
+		}
+    }
+    else if(obj.cmd === "stop-force"){
+		if(child){
+			delete server_list[obj.file];
+			child.kill("SIGKILL");
+		}
+		else
+		{
+		   sendret(s,"server is not start");
+		}
+    }	
+    else
+    {
+		sendret(s,"invalid cmd");
+    }
+}
+
+//send ret
+function sendret(s,err){
+    var ret = {};
+    if(err){
+	ret.err = err;
+    }
+    
+    s.end(JSON.stringify(ret),"utf8");
+}
+
+
+//start bg server
+function startserver(file){
+    
+    var dir = file.slice(0,file.lastIndexOf("/")+1);
+    
+    try{
+	fs.mkdirSync(dir+"log");
+    }
+    catch(e){
+	//ignore
+    }
+    
+    //open the server.log file
+    try{
+		var _fd = fs.openSync(dir+"log/server.log","a+");
+		
+		function start(fd){
+			var child = cp.spawn("node",[file],{stdio:["ignore",fd,fd],detached:true});
+			
+			child.on("exit",function(code,sig){
+				if(code === 0){
+					//exit success
+					delete server_list[file];
+					fs.closeSync(fd);
+				}
+				else
+				{
+					if(!server_list[file])
+					{
+						//force exit
+						fs.writeSync(fd,_timestamp() + "server is force stop !\n",null,"utf8");
+						fs.closeSync(fd);
+					}
+					else
+					{
+						//restart
+						var str = _timestamp();
+						str += "server is killed by sig : " + sig;
+						str += "\n";
+						fs.writeSync(fd,str,null,"utf8");
+						start(fd);
+					}
+				}
+			});
+			
+			server_list[file] = child;
+		}
+		
+		start(_fd);
+   }
+   catch(e){
+		return e.toString();
+   }
+    
+   return undefined;
+}
+
+// get timestamp
+function _formattime(t){
+   return t < 10 ? "0" + t : "" + t;
+}
+
+function _timestamp(){
+   
+   var t = new Date();
+   
+   //such as "[2014-01-25 08:13:01] "  
+   
+   var str = "[" + t.getFullYear() + "-" + _formattime(t.getMonth()+1) + "-" + _formattime(t.getDate()) + " ";
+   str += _formattime(t.getHours()) + ":" + _formattime(t.getMinutes()) + ":" + _formattime(t.getSeconds()) + "] ";
+   
+   return str;
+}

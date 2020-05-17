@@ -1,0 +1,221 @@
+#!/usr/local/bin/node
+
+var cp = require("child_process");
+var path = require("path");
+var fs = require("fs");
+var net = require("net");
+
+var spath = "/tmp/node-daemon.sock";
+
+//a1 is node , a2 is this file
+if(process.argv.length < 3){
+    //help
+    var name = __filename.slice(__filename.lastIndexOf("/")+1);
+    console.log(name + " main cmd");
+    console.log("main is the run script file,or path(we will search in this path)");
+    console.log("cmd is :");
+    console.log("-t	run in debug mode.");
+    console.log("start	run in background mode.");
+    console.log("stop	stop server.");
+}
+else{
+    
+    var file,cmd;
+
+    if(process.argv.length === 3){
+	file = process.cwd();
+	cmd = process.argv[2];
+    }
+    else
+    {
+	file = process.argv[2];
+	cmd = process.argv[3];	
+    }
+    
+    try{
+	var ret = fs.statSync(file);
+	if(ret.isDirectory()){
+	    var _file = find_main(file);
+	    if(!_file){
+		console.log("main.js or main.bjs is not found in path " + file);
+		process.exit(1);
+	    }
+	    file = _file;
+	}
+	else if(ret.isFile()){
+	    //do nothing
+	}
+	else
+	{
+	    console.log(file + " is not a file or path.");
+	    process.exit(1);
+	}
+    }
+    catch(e){
+	console.log(file + " is not exists.");
+	process.exit(1);
+    }
+    
+    file = path.resolve(file);
+   
+    if(cmd === "-t" || cmd === "t"){
+	
+	var child = cp.spawn("node",[file,"-t"],{stdio:"inherit"});
+	process.on("SIGINT",function(){
+	   child.kill("SIGINT"); 
+	});
+    }
+    else if(cmd === "start"){
+	start_server(file);
+    }
+    else if(cmd === "stop"){
+	stop_server(file);
+    }
+    else
+    {
+	console.log("invalid cmd.");
+    }
+}
+
+//find the main script
+function find_main(dir){
+    dir += "/";
+    var files = fs.readdirSync(dir);
+    for(var i = 0; i < files.length; i++){
+	var name = files[i];
+	var file = dir + name;
+	
+	var ret = fs.statSync(file);
+	
+	if(ret.isDirectory()){
+	    var _file = find_main(file);
+	    if(_file){
+		return _file;
+	    }
+	}
+	else if(ret.isFile()){
+	    //must be main.js or main.bjs
+	    if(name === "main.js" || name === "main.bjs"){
+		return file;
+	    }
+	}
+	else
+	{
+	    continue;
+	}
+    }
+    return false;
+}
+
+//start server
+function start_server(file){
+
+    //check node-daemon is run
+    check_daemon(function(){
+	var s = net.connect(spath, "", function() {
+	    
+	    s.on("data",function(buf){
+		var ret = JSON.parse(buf.toString("utf8"));
+		if(ret.err){
+		    console.log(ret.err);
+		}
+		else
+		{
+		    console.log("start ok.");
+		}
+		process.exit(0);
+	    });
+	    
+	    var obj = {};
+	    obj.file = file;
+	    obj.cmd = "start";
+	    s.write(JSON.stringify(obj),"utf8");
+	    
+	    console.log("wait...");
+	});
+	
+	s.on("error",function(e){
+	    console.log("meet error : " + e);
+	    process.exit(1);
+	});
+    });
+}
+
+
+//stop server
+function stop_server(file){
+    var s = net.connect(spath, "", function() {
+	
+		s.on("data",function(buf){
+			var ret = JSON.parse(buf.toString("utf8"));
+			if(ret.err){
+			console.log(ret.err);
+			}
+			else
+			{
+			console.log("stop ok.");
+			}
+			process.exit(0);
+		});
+		
+		var obj = {};
+		obj.file = file;
+		obj.cmd = "stop";
+		s.write(JSON.stringify(obj),"utf8");
+		
+		console.log("wait...");
+		
+		//listen ctrl + c
+		process.on("SIGINT",function(){
+
+			//kill server
+			var newobj = {};
+			newobj.file = file;
+			newobj.cmd = "stop-force";
+			s.write(JSON.stringify(newobj),"utf8");
+			
+			console.log("force stop...");			
+		});		
+	
+    });
+    
+    s.on("error",function(e){
+		console.log("meet error : " + e);
+		process.exit(1);
+    });
+}
+
+//check node-daemon
+function check_daemon(cb){
+    
+    if(fs.existsSync(spath)){
+	cp.exec("netstat -an | grep " + spath,function(error, stdout, stderr){
+	    if(stdout.length === 0){
+		fs.unlinkSync(spath);
+		start_daemon(cb);
+	    }
+	    else
+	    {
+		cb();
+	    }
+	}); 
+    }
+    else
+    {
+	start_daemon(cb);
+    }
+}
+
+function start_daemon(cb){
+    var child = cp.spawn(__dirname+"/node-daemon",[spath],{stdio:"ignore",detached:true});
+    child.unref();
+    
+    //wait for start ok.
+    var inter = setInterval(function(){
+	if(fs.existsSync(spath)){
+	    clearInterval(inter);
+	    cb();
+	}
+    },500);
+}
+

@@ -29,5 +29,5 @@ bin/node-daemon
 #todo 后续会提交多个服务器模板以及详细说明
 
 遇到什么问题，欢迎一起交流
-QQ	1324549904
-eMail	faido@163.com
+QQ	  1324549904
+Email	faido@163.com

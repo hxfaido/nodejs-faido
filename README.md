@@ -25,8 +25,13 @@ bin/node-daemon
 3.目前版本对于卡牌，休闲，回合等游戏已足够（作者多款游戏已稳定运行多年），不推荐及时性要求较高的mmo，moba游戏使用  
 
 
-
-#todo 后续会提交多个服务器模板以及详细说明  
+## 项目模板 ##
+1.空模板     https://github.com/hxfaido/server-template  
+2.Launch    https://github.com/hxfaido/launch-server  
+#todo  
+3.Login   可以处理登录，常用支付校验等  
+4.Game    游戏逻辑服务器  
+5.Stat    数据统计，后台管理  
 
 遇到什么问题，欢迎一起交流  
 QQ	  1324549904  
